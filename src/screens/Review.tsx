@@ -282,6 +282,7 @@ export function ReviewScreen() {
             {lastAttempt.example ? <p className="example">Example: {lastAttempt.example}</p> : null}
             {awaitingRating ? (
               lastAttempt.verdict === 'right' ? (
+                <p className="hint">Choose how well you knew this card using the ratings below.</p>
               ) : null
             ) : (
               <button type="button" className="try-again" onClick={handleTryAgain}>
