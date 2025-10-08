@@ -152,6 +152,59 @@ button:not(:disabled):hover {
   font-size: 0.95rem;
 }
 
+.deck-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deck-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.deck-card-next {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.deck-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.deck-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.deck-stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.deck-stat-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.deck-card-total {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
 .deck-card button {
   background: rgba(96, 165, 250, 0.2);
   border: 1px solid rgba(96, 165, 250, 0.4);
@@ -263,93 +316,72 @@ button:not(:disabled):hover {
   margin: 0;
 }
 
-.judge-panel {
+.feedback-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 22px;
   border-radius: 16px;
-  background: rgba(10, 37, 64, 0.6);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  padding: 20px 24px;
-}
-
-.judge-panel ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.judge-panel li {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.judge-panel li .result-status {
-  margin: 0;
-  font-weight: 600;
-}
-
-.judge-panel li.latest-attempt {
+  background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 12px;
-  padding: 14px 18px;
-  background: rgba(15, 23, 42, 0.4);
 }
 
-.judge-panel li.latest-attempt.verdict-right {
-  border-color: rgba(74, 222, 128, 0.5);
-  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15) inset;
-}
-
-.judge-panel li.latest-attempt.verdict-unsure {
-  border-color: rgba(250, 204, 21, 0.45);
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12) inset;
-}
-
-.judge-panel li.latest-attempt.verdict-wrong {
-  border-color: rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15) inset;
-}
-
-.judge-panel .attempt-header {
+.feedback-card-header {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   color: #bae6fd;
-  font-size: 0.9rem;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.judge-panel .sentence {
+.feedback-card .result-status {
+  margin: 0;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.feedback-card .sentence {
   margin: 0;
   font-style: italic;
   color: #e2e8f0;
 }
 
-.judge-panel .feedback {
+.feedback-card .feedback {
   margin: 0;
   color: #93c5fd;
 }
 
-.judge-panel .example {
+.feedback-card .example {
   margin: 0;
   color: #a5b4fc;
 }
 
-.judge-panel .verdict-right strong {
-  color: #4ade80;
+.feedback-card.verdict-right {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.12) inset;
 }
 
-.judge-panel .verdict-unsure strong {
-  color: #facc15;
+.feedback-card.verdict-unsure {
+  border-color: rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.1) inset;
 }
 
-.judge-panel .verdict-wrong strong {
-  color: #f87171;
+.feedback-card.verdict-wrong {
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.12) inset;
 }
 
-.judge-panel .hint {
-  margin-top: 12px;
-  color: #facc15;
+.feedback-card .try-again {
+  align-self: flex-start;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fecdd3;
+  padding: 8px 18px;
+}
+
+.feedback-card .try-again:hover {
+  transform: translateY(-1px);
 }
 
 .rating-panel {
@@ -361,6 +393,10 @@ button:not(:disabled):hover {
 .rating-panel button {
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.rating-panel.awaiting button {
+  border-color: rgba(74, 222, 128, 0.45);
 }
 
 @media (max-width: 768px) {

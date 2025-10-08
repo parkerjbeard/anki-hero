@@ -98,6 +98,9 @@ export interface DeckSummary {
   dueCount: number;
   totalCount: number;
   nextDue: number | null;
+  newCount: number;
+  reviewCount: number;
+  completedCount: number;
 }
 
 export function getDeckSummaries(): DeckSummary[] {
@@ -107,8 +110,11 @@ export function getDeckSummaries(): DeckSummary[] {
       d.id,
       d.name,
       COUNT(c.id) AS totalCount,
-      SUM(CASE WHEN r.due_ts <= @now THEN 1 ELSE 0 END) AS dueCount,
-      MIN(r.due_ts) AS nextDue
+      COALESCE(SUM(CASE WHEN r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS dueCount,
+      MIN(r.due_ts) AS nextDue,
+      COALESCE(SUM(CASE WHEN r.reps = 0 OR r.reps IS NULL THEN 1 ELSE 0 END), 0) AS newCount,
+      COALESCE(SUM(CASE WHEN r.reps > 0 AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS reviewCount,
+      COALESCE(SUM(CASE WHEN r.reps > 0 AND r.due_ts > @now THEN 1 ELSE 0 END), 0) AS completedCount
     FROM decks d
     LEFT JOIN notes n ON n.deck_id = d.id
     LEFT JOIN cards c ON c.note_id = n.id
@@ -171,7 +177,15 @@ export function getLastAttempt(cardId: number) {
       LIMIT 1
     `,
     )
-    .get(cardId) as { sentence: string; verdict: string; feedback: string; example: string | null; whenTs: number } | undefined;
+    .get(cardId) as
+    | {
+        sentence: string;
+        verdict: string;
+        feedback: string;
+        example: string | null;
+        whenTs: number;
+      }
+    | undefined;
 }
 
 export function insertAttempt(params: {
@@ -303,17 +317,19 @@ export interface NewNoteArgs {
 }
 
 export function insertNote(database: Database.Database, note: NewNoteArgs) {
-  database.prepare(
-    `
+  database
+    .prepare(
+      `
       INSERT OR REPLACE INTO notes (id, deck_id, fields_json, tags_json)
       VALUES (@id, @deckId, @fieldsJson, @tagsJson)
     `,
-  ).run({
-    id: note.id,
-    deckId: note.deckId,
-    fieldsJson: JSON.stringify(note.fields),
-    tagsJson: JSON.stringify(note.tags),
-  });
+    )
+    .run({
+      id: note.id,
+      deckId: note.deckId,
+      fieldsJson: JSON.stringify(note.fields),
+      tagsJson: JSON.stringify(note.tags),
+    });
 }
 
 export interface NewCardArgs {
@@ -329,22 +345,24 @@ export interface NewCardArgs {
 }
 
 export function insertCard(database: Database.Database, card: NewCardArgs) {
-  database.prepare(
-    `
+  database
+    .prepare(
+      `
       INSERT OR REPLACE INTO cards (id, note_id, front_html, back_html, audio_refs_json, target_lexeme, lang, pos, sense_hint)
       VALUES (@id, @noteId, @frontHtml, @backHtml, @audioRefsJson, @targetLexeme, @lang, @pos, @senseHint)
     `,
-  ).run({
-    id: card.id,
-    noteId: card.noteId,
-    frontHtml: card.frontHtml,
-    backHtml: card.backHtml,
-    audioRefsJson: JSON.stringify(card.audioRefs),
-    targetLexeme: card.targetLexeme,
-    lang: card.lang,
-    pos: card.pos ?? null,
-    senseHint: card.senseHint ?? null,
-  });
+    )
+    .run({
+      id: card.id,
+      noteId: card.noteId,
+      frontHtml: card.frontHtml,
+      backHtml: card.backHtml,
+      audioRefsJson: JSON.stringify(card.audioRefs),
+      targetLexeme: card.targetLexeme,
+      lang: card.lang,
+      pos: card.pos ?? null,
+      senseHint: card.senseHint ?? null,
+    });
 }
 
 export function runInTransaction<T>(fn: (database: Database.Database) => T): T {
@@ -403,7 +421,9 @@ export function getCardDetail(cardId: number): CardDetail {
     senseHint: cardRow.senseHint ?? null,
     backHtml: cardRow.backHtml,
     previousSentences: attemptRows.map((row) => row.sentence),
-    previousExamples: attemptRows.map((row) => row.example).filter((example): example is string => Boolean(example)),
+    previousExamples: attemptRows
+      .map((row) => row.example)
+      .filter((example): example is string => Boolean(example)),
   };
 }
 

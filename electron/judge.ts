@@ -27,7 +27,6 @@ const RESPONSE_FORMAT = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['verdict', 'feedback', 'scores'],
     properties: {
       verdict: {
         type: 'string',

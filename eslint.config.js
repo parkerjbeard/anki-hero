@@ -11,7 +11,11 @@ export default ts.config(
     ignores: ['dist/**', 'dist-electron/**', 'dist-preload/**', 'node_modules/**'],
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.renderer.json', './tsconfig.electron.json', './tsconfig.preload.json'],
+        project: [
+          './tsconfig.renderer.json',
+          './tsconfig.electron.json',
+          './tsconfig.preload.json',
+        ],
         tsconfigRootDir: import.meta.dirname,
       },
     },

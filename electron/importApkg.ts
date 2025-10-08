@@ -4,13 +4,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
-import {
-  attachReviewRow,
-  insertCard,
-  insertDeck,
-  insertNote,
-  runInTransaction,
-} from './db';
+import { attachReviewRow, insertCard, insertDeck, insertNote, runInTransaction } from './db';
 
 interface AnkiModel {
   name: string;
@@ -61,7 +55,10 @@ function extractAudioRefs(...sources: string[]): string[] {
 function renderTemplate(template: string, fieldMap: Record<string, string>): string {
   const withoutFrontSide = template.replace(/{{\s*FrontSide\s*}}/gi, '');
   return withoutFrontSide.replace(/{{([^}]+)}}/g, (_, key: string) => {
-    const cleanedKey = key.replace(/[#^\/]/g, '').replace(/type:/i, '').trim();
+    const cleanedKey = key
+      .replace(/[#^\/]/g, '')
+      .replace(/type:/i, '')
+      .trim();
     return fieldMap[cleanedKey] ?? '';
   });
 }
@@ -204,13 +201,20 @@ export async function importApkg(filePath: string): Promise<ImportResult> {
 
     const collection = new Database(collectionPath, { readonly: true, fileMustExist: true });
     try {
-      const modelsRow = collection.prepare(`SELECT models FROM col LIMIT 1`).get() as { models: string };
-      const parsedModels = JSON.parse(modelsRow.models) as Record<string, AnkiModel & { id: number }>;
+      const modelsRow = collection.prepare(`SELECT models FROM col LIMIT 1`).get() as {
+        models: string;
+      };
+      const parsedModels = JSON.parse(modelsRow.models) as Record<
+        string,
+        AnkiModel & { id: number }
+      >;
       for (const [id, model] of Object.entries(parsedModels)) {
         modelMap.set(Number(model.id ?? id), model);
       }
 
-      notes = collection.prepare<unknown[], NoteRecord>(`SELECT id, mid, flds, tags FROM notes`).all();
+      notes = collection
+        .prepare<unknown[], NoteRecord>(`SELECT id, mid, flds, tags FROM notes`)
+        .all();
       cards = collection.prepare<unknown[], CardRecord>(`SELECT id, nid, ord FROM cards`).all();
     } finally {
       collection.close();
@@ -229,7 +233,10 @@ export async function importApkg(filePath: string): Promise<ImportResult> {
 
       for (const note of notes) {
         const fields = extractFields(note.flds);
-        const tags = note.tags.split(' ').map((tag) => tag.trim()).filter(Boolean);
+        const tags = note.tags
+          .split(' ')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
         insertNote(database, { id: note.id, deckId, fields, tags });
       }
 
@@ -254,7 +261,12 @@ export async function importApkg(filePath: string): Promise<ImportResult> {
           backHtml: back,
           audioRefs,
           targetLexeme: guessTargetLexeme(fieldMap),
-          lang: guessLang(note.tags.split(' ').map((tag) => tag.trim()).filter(Boolean)),
+          lang: guessLang(
+            note.tags
+              .split(' ')
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          ),
           pos: guessPos(fieldMap),
           senseHint: guessSenseHint(fieldMap),
         });

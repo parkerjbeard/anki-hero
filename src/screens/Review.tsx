@@ -29,6 +29,7 @@ export function ReviewScreen() {
   const [error, setError] = useState<string | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [awaitingRating, setAwaitingRating] = useState(false);
+  const [showingFeedback, setShowingFeedback] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const lastAttempt = attempts.at(-1) ?? null;
@@ -44,6 +45,7 @@ export function ReviewScreen() {
     setAttempts([]);
     setJudging(false);
     setAwaitingRating(false);
+    setShowingFeedback(false);
     try {
       const next = await window.api.nextCard(selectedDeckId);
       setCard(next);
@@ -92,7 +94,7 @@ export function ReviewScreen() {
 
   const duplicateWarning = useMemo(() => {
     const trimmed = sentence.trim();
-    if (!trimmed || awaitingRating) return null;
+    if (!trimmed || awaitingRating || showingFeedback) return null;
     if (lastAttempt && normalize(lastAttempt.sentence) === normalize(trimmed)) {
       return 'Looks identical to your last sentence.';
     }
@@ -107,7 +109,7 @@ export function ReviewScreen() {
   }, [sentence, awaitingRating, lastAttempt, attempts]);
 
   const handleSubmit = useCallback(async () => {
-    if (!card || !sentence.trim() || judging || awaitingRating) return;
+    if (!card || !sentence.trim() || judging || awaitingRating || showingFeedback) return;
 
     if (duplicateWarning) {
       setError(duplicateWarning);
@@ -121,6 +123,7 @@ export function ReviewScreen() {
       const result = await window.api.judgeSentence(card.id, trimmed);
       const nextAttempts = [...attempts, { ...result, sentence: trimmed }];
       setAttempts(nextAttempts);
+      setShowingFeedback(true);
 
       if (result.verdict === 'right') {
         setSentence('');
@@ -137,7 +140,6 @@ export function ReviewScreen() {
       }
 
       setSentence('');
-      requestAnimationFrame(() => textareaRef.current?.focus());
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -148,11 +150,19 @@ export function ReviewScreen() {
     sentence,
     judging,
     awaitingRating,
+    showingFeedback,
     duplicateWarning,
     attempts,
     loadNextCard,
     queryClient,
   ]);
+
+  const handleTryAgain = useCallback(() => {
+    setSentence('');
+    setError(null);
+    setShowingFeedback(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -251,75 +261,68 @@ export function ReviewScreen() {
 
       <section className="write-pane">
         <h2>Write it in a sentence</h2>
-        <textarea
-          ref={textareaRef}
-          value={sentence}
-          onChange={(event) => {
-            setSentence(event.target.value);
-          }}
-          placeholder="Type your sentence here…"
-          disabled={judging || awaitingRating}
-          rows={3}
-        />
-        <div className="write-actions">
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={judging || awaitingRating || !sentence.trim() || Boolean(duplicateWarning)}
-          >
-            {judging ? 'Checking…' : 'Submit (Enter)'}
-          </button>
-          <span className="attempts">
-            Attempt {attemptCount + 1} of {MAX_ATTEMPTS}
-          </span>
-        </div>
-        {duplicateWarning ? <p className="hint">{duplicateWarning}</p> : null}
-        {error ? <p className="error">{error}</p> : null}
+        {showingFeedback && lastAttempt ? (
+          <div className={`feedback-card verdict-${lastAttempt.verdict}`}>
+            <div className="feedback-card-header">
+              <p className="result-status">
+                {lastAttempt.verdict === 'right'
+                  ? 'Correct!'
+                  : lastAttempt.verdict === 'unsure'
+                    ? 'Almost there—adjust your context.'
+                    : 'Not quite—try again.'}
+              </p>
+              <span>
+                meaning {(lastAttempt.scores.meaning * 100).toFixed(0)} · syntax{' '}
+                {(lastAttempt.scores.syntax * 100).toFixed(0)} · collocation{' '}
+                {(lastAttempt.scores.collocation * 100).toFixed(0)}
+              </span>
+            </div>
+            <p className="sentence">“{lastAttempt.sentence}”</p>
+            <p className="feedback">{lastAttempt.feedback}</p>
+            {lastAttempt.example ? <p className="example">Example: {lastAttempt.example}</p> : null}
+            {awaitingRating ? (
+              lastAttempt.verdict === 'right' ? (
+              ) : null
+            ) : (
+              <button type="button" className="try-again" onClick={handleTryAgain}>
+                Try again
+              </button>
+            )}
+            {lastAttempt.verdict === 'wrong' && attemptCount >= MAX_ATTEMPTS ? (
+              <p className="hint">We’ll revisit this card soon. Moving on…</p>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <textarea
+              ref={textareaRef}
+              value={sentence}
+              onChange={(event) => {
+                setSentence(event.target.value);
+              }}
+              placeholder="Type your sentence here…"
+              disabled={judging}
+              rows={3}
+            />
+            <div className="write-actions">
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={judging || !sentence.trim() || Boolean(duplicateWarning)}
+              >
+                {judging ? 'Checking…' : 'Submit (Enter)'}
+              </button>
+              <span className="attempts">
+                Attempt {attemptCount + 1} of {MAX_ATTEMPTS}
+              </span>
+            </div>
+            {duplicateWarning ? <p className="hint">{duplicateWarning}</p> : null}
+            {error ? <p className="error">{error}</p> : null}
+          </>
+        )}
       </section>
 
-      {attempts.length > 0 ? (
-        <section className="judge-panel">
-          <h3>Feedback</h3>
-          <ul>
-            {attempts.map((attempt, index) => {
-              const isLatest = index === attemptCount - 1;
-              return (
-                <li
-                  key={index}
-                  className={`verdict-${attempt.verdict} ${isLatest ? 'latest-attempt' : ''}`}
-                >
-                  {isLatest ? (
-                    <p className="result-status">
-                      {attempt.verdict === 'right'
-                        ? 'Correct!'
-                        : attempt.verdict === 'unsure'
-                          ? 'Almost there—adjust your context.'
-                          : 'Not quite—try again.'}
-                    </p>
-                  ) : null}
-                  <div className="attempt-header">
-                    <strong>{attempt.verdict.toUpperCase()}</strong>
-                    <span>
-                      meaning {(attempt.scores.meaning * 100).toFixed(0)} · syntax{' '}
-                      {(attempt.scores.syntax * 100).toFixed(0)} · collocation{' '}
-                      {(attempt.scores.collocation * 100).toFixed(0)}
-                    </span>
-                  </div>
-                  <p className="sentence">“{attempt.sentence}”</p>
-                  <p className="feedback">{attempt.feedback}</p>
-                  {attempt.example ? <p className="example">Example: {attempt.example}</p> : null}
-                </li>
-              );
-            })}
-          </ul>
-          {lastAttempt?.verdict === 'wrong' && attemptCount >= MAX_ATTEMPTS ? (
-            <p className="hint">We’ll revisit this card soon. Moving on…</p>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section className="rating-panel">
-        {awaitingRating ? <p className="hint">Pick a rating to continue.</p> : null}
+      <section className={`rating-panel${awaitingRating ? ' awaiting' : ''}`}>
         <button type="button" onClick={() => handleManualRate(0)}>
           Again (1)
         </button>

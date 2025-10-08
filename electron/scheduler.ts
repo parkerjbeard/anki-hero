@@ -10,7 +10,11 @@ export interface SchedulerState {
 
 const ONE_DAY_MS = 86_400_000;
 
-export function schedule(state: SchedulerState, rating: Rating, now: number = Date.now()): SchedulerState {
+export function schedule(
+  state: SchedulerState,
+  rating: Rating,
+  now: number = Date.now(),
+): SchedulerState {
   let { ivl_days, ease, reps, lapses } = state;
 
   switch (rating) {

@@ -143,12 +143,26 @@ export function DecksScreen() {
             className={`deck-card ${selectedDeckId === deck.id ? 'selected' : ''}`}
             onClick={() => selectDeck(deck.id)}
           >
-            <div>
-              <h2>{deck.name}</h2>
-              <p>
-                Due <strong>{deck.dueCount}</strong> · Total <strong>{deck.totalCount}</strong> ·
-                Next {formatNextDue(deck.nextDue)}
-              </p>
+            <div className="deck-card-info">
+              <div className="deck-card-heading">
+                <h2>{deck.name}</h2>
+                <span className="deck-card-next">Next {formatNextDue(deck.nextDue)}</span>
+              </div>
+              <div className="deck-card-stats">
+                <span className="deck-stat">
+                  <span className="deck-stat-label">In Review</span>
+                  <span className="deck-stat-value">{deck.reviewCount}</span>
+                </span>
+                <span className="deck-stat">
+                  <span className="deck-stat-label">Completed</span>
+                  <span className="deck-stat-value">{deck.completedCount}</span>
+                </span>
+                <span className="deck-stat">
+                  <span className="deck-stat-label">New</span>
+                  <span className="deck-stat-value">{deck.newCount}</span>
+                </span>
+              </div>
+              <span className="deck-card-total">Total {deck.totalCount}</span>
             </div>
             <div>
               <button

@@ -25,6 +25,9 @@ export interface DeckSummaryDTO {
   dueCount: number;
   totalCount: number;
   nextDue: number | null;
+  newCount: number;
+  reviewCount: number;
+  completedCount: number;
 }
 
 export type RatingValue = 0 | 1 | 2 | 3;

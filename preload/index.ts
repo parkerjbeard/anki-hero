@@ -12,7 +12,8 @@ const api = {
     ipcRenderer.invoke('api:importApkg', filePath),
   chooseApkg: (): Promise<string | null> => ipcRenderer.invoke('api:chooseApkg'),
   listDecks: (): Promise<DeckSummaryDTO[]> => ipcRenderer.invoke('api:listDecks'),
-  nextCard: (deckId: number): Promise<FrontBackCard | null> => ipcRenderer.invoke('api:nextCard', deckId),
+  nextCard: (deckId: number): Promise<FrontBackCard | null> =>
+    ipcRenderer.invoke('api:nextCard', deckId),
   playAudio: (cardId: number): Promise<string[]> => ipcRenderer.invoke('api:playAudio', cardId),
   judgeSentence: (cardId: number, sentence: string): Promise<JudgeResponseDTO> =>
     ipcRenderer.invoke('api:judgeSentence', cardId, sentence),
