@@ -15,8 +15,10 @@ const schema = z.object({
   example: z.string().min(1).max(120),
 });
 
-const SYSTEM_PROMPT =
-  'You are a vocabulary sentence judge. Using the contextual facts provided, decide whether SENTENCE uses TARGET in the intended sense and provide concise coaching.';
+const SYSTEM_PROMPT = `You are a vocabulary sentence judge. Using the provided context, assess whether SENTENCE uses TARGET in the intended sense and give concise usage coaching.
+Stay focused on language mechanics—do not moralize, tone police, or comment on sentiment.
+If SENTENCE is incorrect or awkward, ensure the feedback pinpoints the issue and the example supplies a corrected sentence that demonstrates proper usage of TARGET.
+When SENTENCE is correct, keep feedback brief and leave the example empty unless a short celebratory variant is essential.`;
 
 const RESPONSE_FORMAT = {
   type: 'json_schema',

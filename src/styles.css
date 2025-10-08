@@ -263,48 +263,6 @@ button:not(:disabled):hover {
   margin: 0;
 }
 
-.result-banner {
-  margin-top: 12px;
-  padding: 14px 18px;
-  border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: rgba(15, 23, 42, 0.55);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-}
-
-.result-banner .result-status {
-  margin: 0;
-  font-weight: 600;
-}
-
-.result-banner .result-sentence {
-  margin: 0;
-  font-style: italic;
-  color: #e2e8f0;
-}
-
-.result-banner .result-feedback {
-  margin: 0;
-  color: #93c5fd;
-}
-
-.result-banner.verdict-right {
-  border-color: rgba(74, 222, 128, 0.5);
-  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15) inset;
-}
-
-.result-banner.verdict-unsure {
-  border-color: rgba(250, 204, 21, 0.45);
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12) inset;
-}
-
-.result-banner.verdict-wrong {
-  border-color: rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15) inset;
-}
-
 .judge-panel {
   border-radius: 16px;
   background: rgba(10, 37, 64, 0.6);
@@ -325,6 +283,33 @@ button:not(:disabled):hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.judge-panel li .result-status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.judge-panel li.latest-attempt {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  padding: 14px 18px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.judge-panel li.latest-attempt.verdict-right {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15) inset;
+}
+
+.judge-panel li.latest-attempt.verdict-unsure {
+  border-color: rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12) inset;
+}
+
+.judge-panel li.latest-attempt.verdict-wrong {
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15) inset;
 }
 
 .judge-panel .attempt-header {

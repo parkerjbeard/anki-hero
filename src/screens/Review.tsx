@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { FrontBackCard, JudgeResponseDTO, JudgeScoresDTO, RatingValue } from '../../types/ipc';
+import type { FrontBackCard, JudgeResponseDTO, RatingValue } from '../../types/ipc';
 import { useAppStore } from '../state';
 
 interface AttemptRecord extends JudgeResponseDTO {
@@ -17,14 +17,6 @@ function normalize(text: string) {
     .toLowerCase();
 }
 
-function computeRating(scores: JudgeScoresDTO): RatingValue {
-  const floor = Math.min(scores.meaning, scores.syntax);
-  if (floor >= 0.9 && scores.collocation >= 0.85) {
-    return 3;
-  }
-  return 2;
-}
-
 export function ReviewScreen() {
   const { selectedDeckId, setActiveScreen } = useAppStore();
   const queryClient = useQueryClient();
@@ -36,7 +28,7 @@ export function ReviewScreen() {
   const [judging, setJudging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
-  const [resultBanner, setResultBanner] = useState<AttemptRecord | null>(null);
+  const [awaitingRating, setAwaitingRating] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const lastAttempt = attempts.at(-1) ?? null;
@@ -51,6 +43,7 @@ export function ReviewScreen() {
     setSentence('');
     setAttempts([]);
     setJudging(false);
+    setAwaitingRating(false);
     try {
       const next = await window.api.nextCard(selectedDeckId);
       setCard(next);
@@ -76,9 +69,9 @@ export function ReviewScreen() {
   const handleManualRate = useCallback(
     async (rating: RatingValue) => {
       if (!card || judging) return;
-      setResultBanner(null);
       await window.api.rate(card.id, rating);
       await queryClient.invalidateQueries({ queryKey: ['decks'] });
+      setAwaitingRating(false);
       await loadNextCard();
     },
     [card, judging, loadNextCard, queryClient],
@@ -99,7 +92,7 @@ export function ReviewScreen() {
 
   const duplicateWarning = useMemo(() => {
     const trimmed = sentence.trim();
-    if (!trimmed) return null;
+    if (!trimmed || awaitingRating) return null;
     if (lastAttempt && normalize(lastAttempt.sentence) === normalize(trimmed)) {
       return 'Looks identical to your last sentence.';
     }
@@ -111,10 +104,10 @@ export function ReviewScreen() {
       return 'Avoid echoing the hint example.';
     }
     return null;
-  }, [sentence, lastAttempt, attempts]);
+  }, [sentence, awaitingRating, lastAttempt, attempts]);
 
   const handleSubmit = useCallback(async () => {
-    if (!card || !sentence.trim() || judging) return;
+    if (!card || !sentence.trim() || judging || awaitingRating) return;
 
     if (duplicateWarning) {
       setError(duplicateWarning);
@@ -128,14 +121,10 @@ export function ReviewScreen() {
       const result = await window.api.judgeSentence(card.id, trimmed);
       const nextAttempts = [...attempts, { ...result, sentence: trimmed }];
       setAttempts(nextAttempts);
-      setResultBanner({ ...result, sentence: trimmed });
 
       if (result.verdict === 'right') {
-        const rating = computeRating(result.scores);
-        await window.api.rate(card.id, rating);
-        await queryClient.invalidateQueries({ queryKey: ['decks'] });
         setSentence('');
-        await loadNextCard();
+        setAwaitingRating(true);
         return;
       }
 
@@ -154,7 +143,16 @@ export function ReviewScreen() {
     } finally {
       setJudging(false);
     }
-  }, [card, sentence, judging, duplicateWarning, attempts, loadNextCard, queryClient]);
+  }, [
+    card,
+    sentence,
+    judging,
+    awaitingRating,
+    duplicateWarning,
+    attempts,
+    loadNextCard,
+    queryClient,
+  ]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -258,19 +256,16 @@ export function ReviewScreen() {
           value={sentence}
           onChange={(event) => {
             setSentence(event.target.value);
-            if (resultBanner) {
-              setResultBanner(null);
-            }
           }}
           placeholder="Type your sentence here…"
-          disabled={judging}
+          disabled={judging || awaitingRating}
           rows={3}
         />
         <div className="write-actions">
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={judging || !sentence.trim() || Boolean(duplicateWarning)}
+            disabled={judging || awaitingRating || !sentence.trim() || Boolean(duplicateWarning)}
           >
             {judging ? 'Checking…' : 'Submit (Enter)'}
           </button>
@@ -278,19 +273,6 @@ export function ReviewScreen() {
             Attempt {attemptCount + 1} of {MAX_ATTEMPTS}
           </span>
         </div>
-        {resultBanner ? (
-          <div className={`result-banner verdict-${resultBanner.verdict}`}>
-            <p className="result-status">
-              {resultBanner.verdict === 'right'
-                ? 'Correct!'
-                : resultBanner.verdict === 'unsure'
-                  ? 'Almost there—adjust your context.'
-                  : 'Not quite—try again.'}
-            </p>
-            <p className="result-sentence">“{resultBanner.sentence}”</p>
-            <p className="result-feedback">{resultBanner.feedback}</p>
-          </div>
-        ) : null}
         {duplicateWarning ? <p className="hint">{duplicateWarning}</p> : null}
         {error ? <p className="error">{error}</p> : null}
       </section>
@@ -299,21 +281,36 @@ export function ReviewScreen() {
         <section className="judge-panel">
           <h3>Feedback</h3>
           <ul>
-            {attempts.map((attempt, index) => (
-              <li key={index} className={`verdict-${attempt.verdict}`}>
-                <div className="attempt-header">
-                  <strong>{attempt.verdict.toUpperCase()}</strong>
-                  <span>
-                    meaning {(attempt.scores.meaning * 100).toFixed(0)} · syntax{' '}
-                    {(attempt.scores.syntax * 100).toFixed(0)} · collocation{' '}
-                    {(attempt.scores.collocation * 100).toFixed(0)}
-                  </span>
-                </div>
-                <p className="sentence">“{attempt.sentence}”</p>
-                <p className="feedback">{attempt.feedback}</p>
-                {attempt.example ? <p className="example">Example: {attempt.example}</p> : null}
-              </li>
-            ))}
+            {attempts.map((attempt, index) => {
+              const isLatest = index === attemptCount - 1;
+              return (
+                <li
+                  key={index}
+                  className={`verdict-${attempt.verdict} ${isLatest ? 'latest-attempt' : ''}`}
+                >
+                  {isLatest ? (
+                    <p className="result-status">
+                      {attempt.verdict === 'right'
+                        ? 'Correct!'
+                        : attempt.verdict === 'unsure'
+                          ? 'Almost there—adjust your context.'
+                          : 'Not quite—try again.'}
+                    </p>
+                  ) : null}
+                  <div className="attempt-header">
+                    <strong>{attempt.verdict.toUpperCase()}</strong>
+                    <span>
+                      meaning {(attempt.scores.meaning * 100).toFixed(0)} · syntax{' '}
+                      {(attempt.scores.syntax * 100).toFixed(0)} · collocation{' '}
+                      {(attempt.scores.collocation * 100).toFixed(0)}
+                    </span>
+                  </div>
+                  <p className="sentence">“{attempt.sentence}”</p>
+                  <p className="feedback">{attempt.feedback}</p>
+                  {attempt.example ? <p className="example">Example: {attempt.example}</p> : null}
+                </li>
+              );
+            })}
           </ul>
           {lastAttempt?.verdict === 'wrong' && attemptCount >= MAX_ATTEMPTS ? (
             <p className="hint">We’ll revisit this card soon. Moving on…</p>
@@ -322,6 +319,7 @@ export function ReviewScreen() {
       ) : null}
 
       <section className="rating-panel">
+        {awaitingRating ? <p className="hint">Pick a rating to continue.</p> : null}
         <button type="button" onClick={() => handleManualRate(0)}>
           Again (1)
         </button>
