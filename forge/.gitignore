@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-electron
+dist-preload
+out
+*.log
+.DS_Store
+tmp
+coverage

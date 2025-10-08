@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.settings.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "outDir": "dist-preload"
+  },
+  "include": ["preload/**/*", "types/**/*"]
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.settings.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "outDir": "dist-electron",
+    "jsx": "preserve"
+  },
+  "include": ["electron/**/*", "types/**/*"],
+  "exclude": ["electron/main-dev.ts"]
+}

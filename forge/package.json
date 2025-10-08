@@ -1,0 +1,59 @@
+{
+  "name": "anki-hero",
+  "version": "0.1.0",
+  "description": "Local-first flashcard coach for productive vocabulary practice.",
+  "private": true,
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:preload\" \"npm:dev:electron-compile\" \"npm:dev:electron-run\"",
+    "dev:renderer": "vite",
+    "dev:preload": "tsc -w -p tsconfig.preload.json",
+    "dev:electron-compile": "tsc -w -p tsconfig.electron.json",
+    "dev:electron-run": "wait-on tcp:5173 file:dist-preload/preload/index.js file:dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 NODE_ENV=development electron dist-electron/electron/main.js",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json && tsc -p tsconfig.preload.json",
+    "lint": "eslint \"{electron,preload,src}/**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,html}\""
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/adm-zip": "^0.5.7",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.1",
+    "@typescript-eslint/parser": "^8.0.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.34.4",
+    "prettier": "^3.3.3",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.7.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.50.0",
+    "adm-zip": "^0.5.12",
+    "better-sqlite3": "^12.4.1",
+    "electron": "^32.0.1",
+    "electron-updater": "^6.3.6",
+    "fs-extra": "^11.2.0",
+    "openai": "^4.55.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
