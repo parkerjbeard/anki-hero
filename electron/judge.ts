@@ -12,13 +12,51 @@ const schema = z.object({
     syntax: z.number().min(0).max(1),
     collocation: z.number().min(0).max(1),
   }),
-  example: z.string().max(120).optional(),
+  example: z.string().min(1).max(120),
 });
 
 const SYSTEM_PROMPT =
-  'Judge if SENTENCE uses TARGET in the right sense. Be terse. Output strict JSON only.';
+  'You are a vocabulary sentence judge. Using the contextual facts provided, decide whether SENTENCE uses TARGET in the intended sense and provide concise coaching.';
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+const RESPONSE_FORMAT = {
+  type: 'json_schema',
+  name: 'judge_response',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['verdict', 'feedback', 'scores'],
+    properties: {
+      verdict: {
+        type: 'string',
+        enum: ['right', 'unsure', 'wrong'],
+      },
+      feedback: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 180,
+      },
+      scores: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['meaning', 'syntax', 'collocation'],
+        properties: {
+          meaning: { type: 'number', minimum: 0, maximum: 1 },
+          syntax: { type: 'number', minimum: 0, maximum: 1 },
+          collocation: { type: 'number', minimum: 0, maximum: 1 },
+        },
+      },
+      example: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 120,
+      },
+    },
+    required: ['verdict', 'feedback', 'scores', 'example'],
+  },
+} as const;
+
+const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-5';
 const STRICTNESS = process.env.ANKI_HERO_STRICTNESS ?? 'normal';
 
 const client = process.env.OPENAI_API_KEY
@@ -29,7 +67,11 @@ const client = process.env.OPENAI_API_KEY
   : null;
 
 function normalize(sentence: string): string {
-  return sentence.replace(/["'.!?]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return sentence
+    .replace(/["'.!?]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function htmlToText(html: string): string {
@@ -42,7 +84,9 @@ function htmlToText(html: string): string {
 
 async function callModel(card: CardDetail, sentence: string): Promise<JudgeResponseDTO> {
   if (!client) {
-    throw new Error('Language model client not configured. Set OPENAI_API_KEY.');
+    throw new Error(
+      'Language model client not configured. Set OPENAI_API_KEY environment variable.',
+    );
   }
 
   const payload = {
@@ -59,18 +103,15 @@ async function callModel(card: CardDetail, sentence: string): Promise<JudgeRespo
 
   const response = await client.responses.create({
     model: DEFAULT_MODEL,
-    temperature: 0.2,
-    max_output_tokens: 300,
-    input: [
-      {
-        role: 'system',
-        content: [{ type: 'input_text' as const, text: SYSTEM_PROMPT }],
-      },
-      {
-        role: 'user',
-        content: [{ type: 'input_text' as const, text: JSON.stringify(payload) }],
-      },
-    ],
+    reasoning: {
+      effort: 'low',
+    },
+    max_output_tokens: 600,
+    text: {
+      format: RESPONSE_FORMAT,
+      verbosity: 'low',
+    },
+    input: `${SYSTEM_PROMPT}\n\n${JSON.stringify(payload)}`,
   });
 
   const text = extractText(response);
@@ -80,12 +121,15 @@ async function callModel(card: CardDetail, sentence: string): Promise<JudgeRespo
   try {
     parsedJson = JSON.parse(safeText);
   } catch (error) {
+    console.error('JSON parse error:', error);
+    console.error('Raw text that failed to parse:', safeText);
     throw new Error('Judge response was not valid JSON.');
   }
 
   const parsed = schema.safeParse(parsedJson);
 
   if (!parsed.success) {
+    console.error('Schema validation failed:', parsed.error);
     throw new Error('Judge response could not be parsed.');
   }
 
@@ -93,12 +137,34 @@ async function callModel(card: CardDetail, sentence: string): Promise<JudgeRespo
 }
 
 function extractText(result: Awaited<ReturnType<OpenAI['responses']['create']>>): string {
+  // Handle GPT-5 Responses API format - check for choices array first
+  if ('choices' in result && Array.isArray(result.choices) && result.choices.length > 0) {
+    const choice = result.choices[0];
+
+    // Check for direct text format (most common for GPT-5)
+    if ('text' in choice && typeof choice.text === 'string') {
+      return choice.text;
+    }
+
+    // Check for message.content format
+    if ('message' in choice && choice.message && 'content' in choice.message) {
+      return choice.message.content;
+    }
+  }
+
+  // Handle GPT-5 Responses API format - check for output_text
+  if ('output_text' in result && typeof result.output_text === 'string') {
+    return result.output_text;
+  }
+
+  // Fallback to legacy format handling
   const maybeOutputText = (result as unknown as { output_text?: string[] }).output_text;
   if (Array.isArray(maybeOutputText) && maybeOutputText.length > 0) {
     return maybeOutputText.join('').trim();
   }
+
   const segments = ((result as any).output ?? []).flatMap((item: any) => item.content ?? []);
-  return segments
+  const extracted = segments
     .map((segment: any) => {
       if ('text' in segment && segment.text) {
         return segment.text;
@@ -107,6 +173,8 @@ function extractText(result: Awaited<ReturnType<OpenAI['responses']['create']>>)
     })
     .join('')
     .trim();
+
+  return extracted;
 }
 
 export async function judgeSentence(cardId: number, sentence: string): Promise<JudgeResponseDTO> {

@@ -1,6 +1,12 @@
 :root {
   color-scheme: light dark;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   background-color: #0f172a;
   color: #e2e8f0;
 }
@@ -15,9 +21,9 @@ html,
 
 .app-shell {
   min-height: 100vh;
-  background: radial-gradient(circle at top, rgba(30, 64, 175, 0.35), transparent 55%),
-    radial-gradient(circle at bottom, rgba(15, 118, 110, 0.35), transparent 45%),
-    #0f172a;
+  background:
+    radial-gradient(circle at top, rgba(30, 64, 175, 0.35), transparent 55%),
+    radial-gradient(circle at bottom, rgba(15, 118, 110, 0.35), transparent 45%), #0f172a;
   color: #e2e8f0;
 }
 
@@ -32,6 +38,14 @@ html,
   flex-direction: column;
   gap: 12px;
   margin-bottom: 32px;
+}
+
+.decks-header .header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .decks-header h1 {
@@ -49,6 +63,39 @@ html,
   gap: 12px;
 }
 
+.decks-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #cbd5f5;
+  font-size: 0.85rem;
+}
+
+.decks-settings label {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.decks-settings select {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 4px 0;
+  cursor: pointer;
+  appearance: none;
+}
+
+.decks-settings select:focus {
+  outline: none;
+}
+
 button {
   cursor: pointer;
   border: none;
@@ -57,7 +104,9 @@ button {
   font-weight: 600;
   border-radius: 999px;
   padding: 10px 20px;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
 }
 
 button:disabled {
@@ -83,7 +132,9 @@ button:not(:disabled):hover {
   border-radius: 16px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  transition: border 0.15s ease, transform 0.15s ease;
+  transition:
+    border 0.15s ease,
+    transform 0.15s ease;
 }
 
 .deck-card.selected {
@@ -212,6 +263,48 @@ button:not(:disabled):hover {
   margin: 0;
 }
 
+.result-banner {
+  margin-top: 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.result-banner .result-status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.result-banner .result-sentence {
+  margin: 0;
+  font-style: italic;
+  color: #e2e8f0;
+}
+
+.result-banner .result-feedback {
+  margin: 0;
+  color: #93c5fd;
+}
+
+.result-banner.verdict-right {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15) inset;
+}
+
+.result-banner.verdict-unsure {
+  border-color: rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12) inset;
+}
+
+.result-banner.verdict-wrong {
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15) inset;
+}
+
 .judge-panel {
   border-radius: 16px;
   background: rgba(10, 37, 64, 0.6);
@@ -285,19 +378,6 @@ button:not(:disabled):hover {
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
-.back-gist {
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  padding: 16px 20px;
-  font-size: 0.95rem;
-  color: #cbd5f5;
-}
-
-.back-gist h4 {
-  margin-top: 0;
-}
-
 @media (max-width: 768px) {
   .screen {
     padding: 24px 16px;
@@ -311,5 +391,4 @@ button:not(:disabled):hover {
   .rating-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
 }

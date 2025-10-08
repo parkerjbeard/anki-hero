@@ -10,7 +10,11 @@ interface AttemptRecord extends JudgeResponseDTO {
 const MAX_ATTEMPTS = 3;
 
 function normalize(text: string) {
-  return text.replace(/["'.!?]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return text
+    .replace(/["'.!?]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function computeRating(scores: JudgeScoresDTO): RatingValue {
@@ -32,6 +36,7 @@ export function ReviewScreen() {
   const [judging, setJudging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [resultBanner, setResultBanner] = useState<AttemptRecord | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const lastAttempt = attempts.at(-1) ?? null;
@@ -71,6 +76,7 @@ export function ReviewScreen() {
   const handleManualRate = useCallback(
     async (rating: RatingValue) => {
       if (!card || judging) return;
+      setResultBanner(null);
       await window.api.rate(card.id, rating);
       await queryClient.invalidateQueries({ queryKey: ['decks'] });
       await loadNextCard();
@@ -122,6 +128,7 @@ export function ReviewScreen() {
       const result = await window.api.judgeSentence(card.id, trimmed);
       const nextAttempts = [...attempts, { ...result, sentence: trimmed }];
       setAttempts(nextAttempts);
+      setResultBanner({ ...result, sentence: trimmed });
 
       if (result.verdict === 'right') {
         const rating = computeRating(result.scores);
@@ -140,11 +147,6 @@ export function ReviewScreen() {
         return;
       }
 
-      if (result.verdict === 'unsure') {
-        setError('New scene please — do not echo the last one.');
-      } else if (result.verdict === 'wrong') {
-        setError('Not quite. Try another sentence using the word naturally.');
-      }
       setSentence('');
       requestAnimationFrame(() => textareaRef.current?.focus());
     } catch (err) {
@@ -188,13 +190,6 @@ export function ReviewScreen() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [card, handleManualRate, handlePlayAudio, handleSubmit]);
-
-  const backText = useMemo(() => {
-    if (!card) return '';
-    const temp = document.createElement('div');
-    temp.innerHTML = card.backHtml;
-    return temp.textContent ?? '';
-  }, [card]);
 
   if (!selectedDeckId) {
     return (
@@ -261,7 +256,12 @@ export function ReviewScreen() {
         <textarea
           ref={textareaRef}
           value={sentence}
-          onChange={(event) => setSentence(event.target.value)}
+          onChange={(event) => {
+            setSentence(event.target.value);
+            if (resultBanner) {
+              setResultBanner(null);
+            }
+          }}
           placeholder="Type your sentence here…"
           disabled={judging}
           rows={3}
@@ -278,6 +278,19 @@ export function ReviewScreen() {
             Attempt {attemptCount + 1} of {MAX_ATTEMPTS}
           </span>
         </div>
+        {resultBanner ? (
+          <div className={`result-banner verdict-${resultBanner.verdict}`}>
+            <p className="result-status">
+              {resultBanner.verdict === 'right'
+                ? 'Correct!'
+                : resultBanner.verdict === 'unsure'
+                  ? 'Almost there—adjust your context.'
+                  : 'Not quite—try again.'}
+            </p>
+            <p className="result-sentence">“{resultBanner.sentence}”</p>
+            <p className="result-feedback">{resultBanner.feedback}</p>
+          </div>
+        ) : null}
         {duplicateWarning ? <p className="hint">{duplicateWarning}</p> : null}
         {error ? <p className="error">{error}</p> : null}
       </section>
@@ -322,11 +335,6 @@ export function ReviewScreen() {
           Easy (4)
         </button>
       </section>
-
-      <aside className="back-gist">
-        <h4>Reference</h4>
-        <p>{backText}</p>
-      </aside>
     </div>
   );
 }

@@ -1,6 +1,10 @@
+import { config } from 'dotenv';
 import { app, BrowserWindow, ipcMain, nativeTheme, dialog, protocol } from 'electron';
 import path from 'node:path';
 import { URL } from 'node:url';
+
+// Load environment variables from .env file
+config();
 import {
   initializeDatabase,
   getDeckSummaries,

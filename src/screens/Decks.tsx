@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DeckSummaryDTO } from '../../types/ipc';
 import { useAppStore } from '../state';
 
@@ -22,14 +22,60 @@ function formatNextDue(timestamp: number | null) {
   return `${days} d`;
 }
 
+type SortOrder = 'alphabetical' | 'random';
+const SORT_ORDER_STORAGE_KEY = 'deck-sort-order';
+
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function matchesOriginalOrder(items: DeckSummaryDTO[], candidate: DeckSummaryDTO[]) {
+  return items.every((item, index) => candidate[index]?.id === item.id);
+}
+
 export function DecksScreen() {
   const { data, isLoading, refetch } = useDecks();
   const queryClient = useQueryClient();
   const { selectDeck, setActiveScreen, selectedDeckId } = useAppStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
+    if (typeof window === 'undefined') {
+      return 'alphabetical';
+    }
+    const stored = window.localStorage.getItem(SORT_ORDER_STORAGE_KEY);
+    return stored === 'random' ? 'random' : 'alphabetical';
+  });
 
-  const decks = useMemo(() => data ?? [], [data]);
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(SORT_ORDER_STORAGE_KEY, sortOrder);
+  }, [sortOrder]);
+
+  const decks = useMemo(() => {
+    const items = data ?? [];
+    if (items.length === 0) {
+      return items;
+    }
+    if (sortOrder === 'random') {
+      if (items.length < 2) {
+        return items;
+      }
+      let shuffled = shuffle(items);
+      if (matchesOriginalOrder(items, shuffled)) {
+        shuffled = shuffle(items);
+      }
+      return shuffled;
+    }
+    return [...items].sort((a, b) => a.name.localeCompare(b.name));
+  }, [data, sortOrder]);
 
   const handleImportClick = useCallback(async () => {
     setError(null);
@@ -60,7 +106,22 @@ export function DecksScreen() {
   return (
     <div className="screen decks-screen">
       <header className="decks-header">
-        <h1>Anki Hero</h1>
+        <div className="header-top">
+          <h1>Anki Hero</h1>
+          <div className="decks-settings">
+            <label htmlFor="deck-order">Order</label>
+            <select
+              id="deck-order"
+              value={sortOrder}
+              onChange={(event) =>
+                setSortOrder(event.target.value === 'random' ? 'random' : 'alphabetical')
+              }
+            >
+              <option value="alphabetical">Alphabetical</option>
+              <option value="random">Random</option>
+            </select>
+          </div>
+        </div>
         <p className="tagline">Turn passive vocabulary into active power.</p>
         <div className="actions">
           <button type="button" onClick={handleImportClick} disabled={busy}>
