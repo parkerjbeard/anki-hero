@@ -24,7 +24,6 @@ This project uses Electron with TypeScript and React for the frontend.
 1. Clone the repository
 2. Install dependencies:
    ```bash
-   cd forge
    npm install
    ```
 
@@ -35,11 +34,11 @@ This project uses Electron with TypeScript and React for the frontend.
 
 ## Project Structure
 
-- `forge/` - Main Electron application
-  - `electron/` - Main process code
-  - `preload/` - Preload scripts
-  - `src/` - Renderer process (React app)
-  - `dist-*` - Build outputs
+- `electron/` - Main process code
+- `preload/` - Preload scripts
+- `src/` - Renderer process (React app)
+- `dist-*` - Build outputs
+- `types/` - TypeScript type definitions
 
 ## License
 

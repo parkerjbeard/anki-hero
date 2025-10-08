@@ -1,7 +1,6 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, dialog, protocol } from 'electron';
 import path from 'node:path';
 import { URL } from 'node:url';
-import { pathToFileURL } from 'node:url';
 import {
   initializeDatabase,
   getDeckSummaries,
@@ -53,6 +52,13 @@ app.on('window-all-closed', () => {
 });
 
 app.whenReady().then(() => {
+  protocol.registerFileProtocol('media', (request, callback) => {
+    const url = new URL(request.url);
+    const deckId = url.hostname;
+    const filePath = decodeURIComponent(url.pathname.slice(1));
+    callback(path.join(app.getPath('userData'), 'media', deckId, filePath));
+  });
+
   try {
     initializeDatabase();
   } catch (error) {
@@ -101,7 +107,8 @@ ipcMain.handle('api:playAudio', (_event, cardId: number) => {
   const baseDir = path.join(app.getPath('userData'), 'media', String(deckId));
   return audioRefs.map((file) => {
     const absolutePath = path.join(baseDir, file);
-    return pathToFileURL(absolutePath).toString();
+    const relativePath = path.relative(baseDir, absolutePath);
+    return `media://${deckId}/${encodeURIComponent(relativePath).replace(/%2F/g, '/')}`;
   });
 });
 
