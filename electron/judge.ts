@@ -16,9 +16,9 @@ const schema = z.object({
 });
 
 const SYSTEM_PROMPT = `You are a vocabulary sentence judge. Using the provided context, assess whether SENTENCE uses TARGET in the intended sense and give concise usage coaching.
-Stay focused on language mechanics—do not moralize, tone police, or comment on sentiment.
-If SENTENCE is incorrect or awkward, ensure the feedback pinpoints the issue and the example supplies a corrected sentence that demonstrates proper usage of TARGET.
-When SENTENCE is correct, keep feedback brief and leave the example empty unless a short celebratory variant is essential.`;
+Ignore grammar and surface mechanics (capitalization, punctuation, spelling, hyphenation, etc.). Do not moralize, tone police, or comment on sentiment; judge only whether TARGET is used in the intended sense and whether its collocations/arguments make sense.
+If SENTENCE misuses the TARGET’s sense or collocation, ensure the feedback pinpoints that semantic/collocational issue and the example supplies a corrected sentence that demonstrates proper usage of TARGET. Do not include mechanics-only edits.
+When SENTENCE is correct, keep feedback brief, avoid mechanics commentary, and leave the example empty unless a short celebratory variant is essential.`;
 
 const RESPONSE_FORMAT = {
   type: 'json_schema',

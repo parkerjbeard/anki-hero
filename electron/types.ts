@@ -32,6 +32,9 @@ export interface ReviewRow {
   ease: number;
   reps: number;
   lapses: number;
+  difficulty: number;
+  learning_stage: number;
+  suspended: number;
 }
 
 export interface AttemptRow {

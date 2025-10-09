@@ -12,6 +12,8 @@ import {
   getReviewState,
   updateReviewState,
   getCardMediaRefs,
+  getDeckIdForCard,
+  incrementNewShownToday,
 } from './db';
 import { importApkg } from './importApkg';
 import { judgeSentence } from './judge';
@@ -129,6 +131,9 @@ ipcMain.handle('api:rate', (_event, cardId: number, rating: Rating) => {
       reps: state.reps,
       lapses: state.lapses,
       due_ts: state.due_ts,
+      learning_stage: state.learning_stage,
+      difficulty: state.difficulty,
+      suspended: state.suspended,
     },
     rating,
   );
@@ -139,5 +144,18 @@ ipcMain.handle('api:rate', (_event, cardId: number, rating: Rating) => {
     ease: next.ease,
     reps: next.reps,
     lapses: next.lapses,
+    learningStage: next.learning_stage,
+    difficulty: next.difficulty,
+    suspended: next.suspended,
   });
+
+  // If this was the first successful review (reps moved from 0 → 1), count it toward today's new cap
+  if (state.reps === 0 && next.reps > 0) {
+    try {
+      const deckId = getDeckIdForCard(cardId);
+      incrementNewShownToday(deckId);
+    } catch (_) {
+      // non-fatal
+    }
+  }
 });

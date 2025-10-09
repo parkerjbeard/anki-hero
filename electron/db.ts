@@ -90,6 +90,26 @@ function applySchema(database: Database.Database) {
     `);
     database.pragma('user_version = 1');
   }
+
+  if (userVersion < 2) {
+    database.exec(`
+      ALTER TABLE reviews ADD COLUMN difficulty REAL NOT NULL DEFAULT 0.5;
+      ALTER TABLE reviews ADD COLUMN learning_stage INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE reviews ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE decks ADD COLUMN daily_new_cap INTEGER NOT NULL DEFAULT 20;
+
+      CREATE TABLE IF NOT EXISTS daily_stats (
+        deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+        date_ymd TEXT NOT NULL,
+        new_shown INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (deck_id, date_ymd)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_reviews_learning_due ON reviews(learning_stage, due_ts);
+    `);
+    database.pragma('user_version = 2');
+  }
 }
 
 export interface DeckSummary {
@@ -128,7 +148,13 @@ export function getDeckSummaries(): DeckSummary[] {
 
 export function getNextReviewCard(deckId: number): CardForReview | null {
   const database = getDatabase();
-  const stmt = database.prepare(`
+  const now = Date.now();
+  const cap = getDeckDailyNewCap(deckId);
+  const newShown = getNewShownToday(deckId);
+  const canShowNew = newShown < cap;
+
+  // 1) Learning/review due now
+  const dueStmt = database.prepare(`
     SELECT
       c.id AS id,
       c.front_html AS frontHtml,
@@ -147,17 +173,49 @@ export function getNextReviewCard(deckId: number): CardForReview | null {
     JOIN notes n ON n.id = c.note_id
     JOIN reviews r ON r.card_id = c.id
     WHERE n.deck_id = @deckId
+      AND r.suspended = 0
+      AND r.due_ts <= @now
+      AND (r.learning_stage > 0 OR r.reps > 0)
     ORDER BY r.due_ts ASC, c.id ASC
     LIMIT 1
   `);
 
-  const row = stmt.get({ deckId }) as
+  let row = dueStmt.get({ deckId, now }) as
     | (Omit<CardForReview, 'audioRefs'> & { audioRefs: string })
     | undefined;
 
-  if (!row) {
-    return null;
+  if (!row && canShowNew) {
+    // 2) New card (reps = 0), subject to daily cap
+    const newStmt = database.prepare(`
+      SELECT
+        c.id AS id,
+        c.front_html AS frontHtml,
+        c.back_html AS backHtml,
+        c.audio_refs_json AS audioRefs,
+        c.target_lexeme AS targetLexeme,
+        c.lang AS lang,
+        c.pos AS pos,
+        c.sense_hint AS senseHint,
+        r.due_ts AS dueTs,
+        r.ivl_days AS ivlDays,
+        r.ease AS ease,
+        r.reps AS reps,
+        r.lapses AS lapses
+      FROM cards c
+      JOIN notes n ON n.id = c.note_id
+      JOIN reviews r ON r.card_id = c.id
+      WHERE n.deck_id = @deckId
+        AND r.suspended = 0
+        AND r.reps = 0
+      ORDER BY RANDOM()
+      LIMIT 1
+    `);
+    row = newStmt.get({ deckId }) as
+      | (Omit<CardForReview, 'audioRefs'> & { audioRefs: string })
+      | undefined;
   }
+
+  if (!row) return null;
 
   return {
     ...row,
@@ -223,6 +281,9 @@ export interface ReviewUpdate {
   ease: number;
   reps: number;
   lapses: number;
+  learningStage?: number;
+  difficulty?: number;
+  suspended?: number;
 }
 
 export function updateReviewState(update: ReviewUpdate) {
@@ -235,7 +296,10 @@ export function updateReviewState(update: ReviewUpdate) {
           ivl_days = @ivlDays,
           ease = @ease,
           reps = @reps,
-          lapses = @lapses
+          lapses = @lapses,
+          learning_stage = COALESCE(@learningStage, learning_stage),
+          difficulty = COALESCE(@difficulty, difficulty),
+          suspended = COALESCE(@suspended, suspended)
       WHERE card_id = @cardId
     `,
     )
@@ -248,6 +312,9 @@ export interface ReviewState {
   ease: number;
   reps: number;
   lapses: number;
+  learning_stage: number;
+  difficulty: number;
+  suspended: number;
 }
 
 export function getReviewState(cardId: number): ReviewState {
@@ -255,7 +322,7 @@ export function getReviewState(cardId: number): ReviewState {
   const row = database
     .prepare(
       `
-      SELECT due_ts, ivl_days, ease, reps, lapses
+      SELECT due_ts, ivl_days, ease, reps, lapses, learning_stage, difficulty, suspended
       FROM reviews
       WHERE card_id = ?
     `,
@@ -272,8 +339,8 @@ export function getReviewState(cardId: number): ReviewState {
 export function attachReviewRow(cardId: number, database: Database.Database) {
   const insert = database.prepare(
     `
-      INSERT OR IGNORE INTO reviews (card_id, due_ts, ivl_days, ease, reps, lapses)
-      VALUES (@cardId, @dueTs, @ivlDays, @ease, @reps, @lapses)
+      INSERT OR IGNORE INTO reviews (card_id, due_ts, ivl_days, ease, reps, lapses, difficulty, learning_stage, suspended)
+      VALUES (@cardId, @dueTs, @ivlDays, @ease, @reps, @lapses, @difficulty, @learningStage, @suspended)
     `,
   );
 
@@ -284,6 +351,9 @@ export function attachReviewRow(cardId: number, database: Database.Database) {
     ease: 2.5,
     reps: 0,
     lapses: 0,
+    difficulty: 0.5,
+    learningStage: 0,
+    suspended: 0,
   });
 }
 
@@ -369,6 +439,55 @@ export function runInTransaction<T>(fn: (database: Database.Database) => T): T {
   const database = getDatabase();
   const trx = database.transaction(() => fn(database));
   return trx();
+}
+
+// Daily new-card cap helpers
+function todayYMD(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function getDeckDailyNewCap(deckId: number): number {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT daily_new_cap AS cap FROM decks WHERE id = ?')
+    .get(deckId) as { cap?: number } | undefined;
+  return row?.cap ?? 20;
+}
+
+export function getNewShownToday(deckId: number): number {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT new_shown AS n FROM daily_stats WHERE deck_id = ? AND date_ymd = ? LIMIT 1')
+    .get(deckId, todayYMD()) as { n?: number } | undefined;
+  return row?.n ?? 0;
+}
+
+export function incrementNewShownToday(deckId: number) {
+  const database = getDatabase();
+  database
+    .prepare(
+      `INSERT INTO daily_stats (deck_id, date_ymd, new_shown)
+       VALUES (@deckId, @date, 1)
+       ON CONFLICT(deck_id, date_ymd) DO UPDATE SET new_shown = new_shown + 1`,
+    )
+    .run({ deckId, date: todayYMD() });
+}
+
+export function getDeckIdForCard(cardId: number): number {
+  const database = getDatabase();
+  const row = database
+    .prepare(
+      `SELECT n.deck_id AS deckId
+       FROM cards c JOIN notes n ON n.id = c.note_id
+       WHERE c.id = ?`,
+    )
+    .get(cardId) as { deckId?: number } | undefined;
+  if (!row?.deckId) throw new Error(`Deck not found for card ${cardId}`);
+  return row.deckId;
 }
 
 export function getCardDetail(cardId: number): CardDetail {
