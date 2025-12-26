@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FrontBackCard, JudgeResponseDTO, RatingValue } from '../../types/ipc';
 import { useAppStore } from '../state';
+import { ExplainButton } from '../components/ExplainButton';
+import { InsightsPanel } from '../components/InsightsPanel';
 
 interface AttemptRecord extends JudgeResponseDTO {
   sentence: string;
@@ -15,6 +17,10 @@ function normalize(text: string) {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+function stripHtml(html: string) {
+  return html.replace(/<[^>]*>/g, '').trim();
 }
 
 export function ReviewScreen() {
@@ -237,7 +243,7 @@ export function ReviewScreen() {
           ← Decks
         </button>
         <div className="card-meta">
-          <h1>{card.targetLexeme}</h1>
+          <h1>{stripHtml(card.targetLexeme)}</h1>
           <span className="lang-tag">
             {card.lang.toUpperCase()}
             {card.pos ? ` · ${card.pos}` : ''}
@@ -256,6 +262,15 @@ export function ReviewScreen() {
           <button type="button" onClick={() => setIsFront((prev) => !prev)}>
             {isFront ? 'Show Answer (Space)' : 'Show Question'}
           </button>
+          <ExplainButton
+            cardId={card.id}
+            buttonLabel="Explain Concept"
+            context={{
+              mode: 'vocab',
+              attempt: lastAttempt?.sentence,
+              language: card.lang,
+            }}
+          />
         </div>
       </section>
 
@@ -272,21 +287,38 @@ export function ReviewScreen() {
                     : 'Not quite—try again.'}
               </p>
               <span>
-                meaning {(lastAttempt.scores.meaning * 100).toFixed(0)} · syntax{' '}
-                {(lastAttempt.scores.syntax * 100).toFixed(0)} · collocation{' '}
-                {(lastAttempt.scores.collocation * 100).toFixed(0)}
+                form {(lastAttempt.scores.form * 100).toFixed(0)} · mechanics{' '}
+                {(lastAttempt.scores.mechanics * 100).toFixed(0)} · grammar{' '}
+                {(lastAttempt.scores.grammar * 100).toFixed(0)}
               </span>
             </div>
-            <p className="sentence">“{lastAttempt.sentence}”</p>
+            {lastAttempt.qualityScores && lastAttempt.verdict !== 'wrong' && (
+              <div className="quality-scores">
+                <span className="quality-score" title="How interesting/creative">
+                  style {(lastAttempt.qualityScores.style * 100).toFixed(0)}
+                </span>
+                <span className="quality-score" title="Native-like expression">
+                  sophistication {(lastAttempt.qualityScores.sophistication * 100).toFixed(0)}
+                </span>
+                <span className="quality-score" title="Natural collocations">
+                  naturalness {(lastAttempt.qualityScores.naturalness * 100).toFixed(0)}
+                </span>
+              </div>
+            )}
+            <p className="sentence">"{lastAttempt.sentence}"</p>
             <p className="feedback">{lastAttempt.feedback}</p>
+            {lastAttempt.quickTip && <p className="quick-tip">{lastAttempt.quickTip}</p>}
             {lastAttempt.example ? <p className="example">Example: {lastAttempt.example}</p> : null}
+            {lastAttempt.verdict === 'right' && card && (
+              <InsightsPanel cardId={card.id} sentence={lastAttempt.sentence} />
+            )}
             {awaitingRating ? null : (
               <button type="button" className="try-again" onClick={handleTryAgain}>
                 Try again
               </button>
             )}
             {lastAttempt.verdict === 'wrong' && attemptCount >= MAX_ATTEMPTS ? (
-              <p className="hint">We’ll revisit this card soon. Moving on…</p>
+              <p className="hint">We'll revisit this card soon. Moving on…</p>
             ) : null}
           </div>
         ) : (

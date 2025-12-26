@@ -2,7 +2,9 @@ node_modules
 dist
 dist-electron
 dist-preload
+release
 out
+.electron-gyp
 *.log
 .DS_Store
 tmp

@@ -3,20 +3,21 @@ import { useMemo } from 'react';
 import { useAppStore } from '../state';
 import { DecksScreen } from './Decks';
 import { ReviewScreen } from './Review';
+import { ReviewCodeScreen } from './ReviewCode';
 
 const client = new QueryClient();
 
 export function App() {
-  const { activeScreen } = useAppStore();
+  const { activeScreen, activeMode } = useAppStore();
   const screen = useMemo(() => {
     switch (activeScreen) {
       case 'review':
-        return <ReviewScreen />;
+        return activeMode === 'coding' ? <ReviewCodeScreen /> : <ReviewScreen />;
       case 'decks':
       default:
         return <DecksScreen />;
     }
-  }, [activeScreen]);
+  }, [activeMode, activeScreen]);
 
   return (
     <QueryClientProvider client={client}>

@@ -13,6 +13,7 @@ declare global {
       ) => Promise<import('../../types/ipc').JudgeResponseDTO>;
       rate: (cardId: number, rating: import('../../types/ipc').RatingValue) => Promise<void>;
       chooseApkg: () => Promise<string | null>;
+      deleteDeck: (deckId: number) => Promise<void>;
     };
   }
 }

@@ -40,6 +40,38 @@ function stripSoundTokens(input: string): string {
   return input.replace(SOUND_PATTERN, '').trim();
 }
 
+function stripHtml(input: string): string {
+  return input
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .trim();
+}
+
+function guessCodeLanguage(code: string, tags: string[]): string {
+  const lowerTags = tags.map((tag) => tag.toLowerCase());
+  if (lowerTags.some((tag) => tag.includes('python'))) return 'python';
+  if (lowerTags.some((tag) => tag.includes('typescript') || tag.includes('ts')))
+    return 'typescript';
+  if (lowerTags.some((tag) => tag.includes('javascript') || tag.includes('js')))
+    return 'javascript';
+  if (lowerTags.some((tag) => tag.includes('sql'))) return 'sql';
+  if (lowerTags.some((tag) => tag.includes('rust'))) return 'rust';
+  if (lowerTags.some((tag) => tag.includes('go'))) return 'go';
+
+  if (/^\s*import\s+\w+/m.test(code) && /from\s+typing/.test(code)) return 'python';
+  if (/console\.log/.test(code) || /\bfunction\b/.test(code)) return 'javascript';
+  if (/fmt\.Print/.test(code)) return 'go';
+  if (/SELECT\s+/i.test(code) && /FROM\s+/i.test(code)) return 'sql';
+  if (/fn\s+\w+\s*\(/.test(code)) return 'rust';
+  return 'javascript';
+}
+
 function extractAudioRefs(...sources: string[]): string[] {
   const results = new Set<string>();
   for (const source of sources) {
@@ -88,6 +120,49 @@ function guessLang(tags: string[]): string {
     return 'fr';
   }
   return 'en';
+}
+
+interface CodingDetection {
+  prompt: string;
+  code: string;
+  expectedOutput: string;
+  language: string;
+  explainContext: string | null;
+}
+
+function detectCodingCard(
+  fieldMap: Record<string, string>,
+  tags: string[],
+): CodingDetection | null {
+  const entries = Object.entries(fieldMap);
+  const codeEntry = entries.find(([key]) => /code|snippet|solution|implementation/i.test(key));
+  const expectedEntry = entries.find(([key]) => /(expected|output|result)/i.test(key));
+
+  if (!codeEntry || !expectedEntry) {
+    return null;
+  }
+
+  const promptEntry = entries.find(([key]) => /(prompt|task|challenge|goal|question)/i.test(key));
+  const languageEntry = entries.find(([key]) => /(language|lang)/i.test(key));
+  const contextEntry = entries.find(([key]) => /(context|explain|concept)/i.test(key));
+
+  const code = stripSoundTokens(codeEntry[1]);
+  const expected = stripHtml(stripSoundTokens(expectedEntry[1]));
+  if (!code || !expected) {
+    return null;
+  }
+
+  const prompt = stripSoundTokens(promptEntry?.[1] ?? code);
+  const language = stripSoundTokens(languageEntry?.[1] ?? '') || guessCodeLanguage(code, tags);
+  const explainContext = contextEntry ? stripSoundTokens(contextEntry[1]) : null;
+
+  return {
+    prompt,
+    code,
+    expectedOutput: expected,
+    language,
+    explainContext,
+  };
 }
 
 function guessSenseHint(fieldMap: Record<string, string>): string | null {
@@ -247,6 +322,10 @@ export async function importApkg(filePath: string): Promise<ImportResult> {
         if (!note) continue;
 
         const model = modelMap.get(note.mid);
+        const noteTags = note.tags
+          .split(' ')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
         const fields = extractFields(note.flds);
         const fieldMap = buildFieldMap(model, fields);
         const template = model?.tmpls?.[card.ord];
@@ -254,21 +333,33 @@ export async function importApkg(filePath: string): Promise<ImportResult> {
         const audioRefs = extractAudioRefs(front, back, ...fields);
         audioRefs.forEach((ref) => referencedAudio.add(ref));
 
+        const coding = detectCodingCard(fieldMap, noteTags);
+        const kind = coding ? 'coding' : 'vocab';
+        const language = coding ? coding.language : guessLang(noteTags);
+        const targetLexeme = coding ? coding.prompt.slice(0, 120) : guessTargetLexeme(fieldMap);
+        const pos = coding ? null : guessPos(fieldMap);
+        const senseHint = coding ? null : guessSenseHint(fieldMap);
+
         insertCard(database, {
           id: card.id,
           noteId: note.id,
           frontHtml: front,
           backHtml: back,
           audioRefs,
-          targetLexeme: guessTargetLexeme(fieldMap),
-          lang: guessLang(
-            note.tags
-              .split(' ')
-              .map((tag) => tag.trim())
-              .filter(Boolean),
-          ),
-          pos: guessPos(fieldMap),
-          senseHint: guessSenseHint(fieldMap),
+          targetLexeme,
+          lang: language,
+          pos,
+          senseHint,
+          kind,
+          extra: coding
+            ? {
+                prompt: coding.prompt,
+                code: coding.code,
+                language: coding.language,
+                expectedOutput: coding.expectedOutput,
+                explainContext: coding.explainContext,
+              }
+            : undefined,
         });
 
         attachReviewRow(card.id, database);

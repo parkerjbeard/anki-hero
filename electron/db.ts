@@ -2,7 +2,13 @@ import Database from 'better-sqlite3';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { app } from 'electron';
-import type { CardDetail, CardForReview } from './types';
+import type {
+  CardDetail,
+  CardForReview,
+  CardExplainContext,
+  CodingCardForReview,
+  CardKind,
+} from './types';
 
 const DB_FILENAME = 'anki-hero.sqlite';
 
@@ -110,7 +116,41 @@ function applySchema(database: Database.Database) {
     `);
     database.pragma('user_version = 2');
   }
+
+  if (userVersion < 3) {
+    database.exec(`
+      ALTER TABLE cards ADD COLUMN kind TEXT NOT NULL DEFAULT 'vocab';
+      ALTER TABLE cards ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}';
+      CREATE INDEX IF NOT EXISTS idx_cards_kind ON cards(kind);
+    `);
+    database.pragma('user_version = 3');
+  }
 }
+
+interface DeckModeStats {
+  totalCount: number;
+  dueCount: number;
+  reviewCount: number;
+  completedCount: number;
+  newCount: number;
+}
+
+type DeckSummaryRow = {
+  id: number;
+  name: string;
+  totalCount: number;
+  nextDue: number | null;
+  vocabCount: number | null;
+  codingCount: number | null;
+  vocabNewCount: number | null;
+  codingNewCount: number | null;
+  vocabDueCount: number | null;
+  codingDueCount: number | null;
+  vocabReviewCount: number | null;
+  codingReviewCount: number | null;
+  vocabCompletedCount: number | null;
+  codingCompletedCount: number | null;
+};
 
 export interface DeckSummary {
   id: number;
@@ -121,6 +161,10 @@ export interface DeckSummary {
   newCount: number;
   reviewCount: number;
   completedCount: number;
+  vocabCount: number;
+  codingCount: number;
+  modes: CardKind[];
+  stats: Record<CardKind, DeckModeStats>;
 }
 
 export function getDeckSummaries(): DeckSummary[] {
@@ -130,11 +174,17 @@ export function getDeckSummaries(): DeckSummary[] {
       d.id,
       d.name,
       COUNT(c.id) AS totalCount,
-      COALESCE(SUM(CASE WHEN r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS dueCount,
       MIN(r.due_ts) AS nextDue,
-      COALESCE(SUM(CASE WHEN r.reps = 0 OR r.reps IS NULL THEN 1 ELSE 0 END), 0) AS newCount,
-      COALESCE(SUM(CASE WHEN r.reps > 0 AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS reviewCount,
-      COALESCE(SUM(CASE WHEN r.reps > 0 AND r.due_ts > @now THEN 1 ELSE 0 END), 0) AS completedCount
+      COALESCE(SUM(CASE WHEN c.kind = 'vocab' THEN 1 ELSE 0 END), 0) AS vocabCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'coding' THEN 1 ELSE 0 END), 0) AS codingCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'vocab' AND (r.reps = 0 OR r.reps IS NULL) THEN 1 ELSE 0 END), 0) AS vocabNewCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'coding' AND (r.reps = 0 OR r.reps IS NULL) THEN 1 ELSE 0 END), 0) AS codingNewCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'vocab' AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS vocabDueCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'coding' AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS codingDueCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'vocab' AND r.reps > 0 AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS vocabReviewCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'coding' AND r.reps > 0 AND r.due_ts <= @now THEN 1 ELSE 0 END), 0) AS codingReviewCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'vocab' AND r.reps > 0 AND r.due_ts > @now THEN 1 ELSE 0 END), 0) AS vocabCompletedCount,
+      COALESCE(SUM(CASE WHEN c.kind = 'coding' AND r.reps > 0 AND r.due_ts > @now THEN 1 ELSE 0 END), 0) AS codingCompletedCount
     FROM decks d
     LEFT JOIN notes n ON n.deck_id = d.id
     LEFT JOIN cards c ON c.note_id = n.id
@@ -143,7 +193,62 @@ export function getDeckSummaries(): DeckSummary[] {
     ORDER BY d.name ASC
   `);
 
-  return stmt.all({ now: Date.now() }) as DeckSummary[];
+  const rows = stmt.all({ now: Date.now() }) as DeckSummaryRow[];
+
+  return rows.map((row) => {
+    const stats: Record<CardKind, DeckModeStats> = {
+      vocab: {
+        totalCount: row.vocabCount ?? 0,
+        dueCount: row.vocabDueCount ?? 0,
+        reviewCount: row.vocabReviewCount ?? 0,
+        completedCount: row.vocabCompletedCount ?? 0,
+        newCount: row.vocabNewCount ?? 0,
+      },
+      coding: {
+        totalCount: row.codingCount ?? 0,
+        dueCount: row.codingDueCount ?? 0,
+        reviewCount: row.codingReviewCount ?? 0,
+        completedCount: row.codingCompletedCount ?? 0,
+        newCount: row.codingNewCount ?? 0,
+      },
+    };
+
+    const vocabCount = stats.vocab.totalCount;
+    const codingCount = stats.coding.totalCount;
+    const modes: CardKind[] = [];
+    if (vocabCount > 0) modes.push('vocab');
+    if (codingCount > 0) modes.push('coding');
+
+    return {
+      id: row.id,
+      name: row.name,
+      totalCount: row.totalCount ?? vocabCount + codingCount,
+      nextDue: row.nextDue,
+      vocabCount,
+      codingCount,
+      dueCount: stats.vocab.dueCount + stats.coding.dueCount,
+      newCount: stats.vocab.newCount + stats.coding.newCount,
+      reviewCount: stats.vocab.reviewCount + stats.coding.reviewCount,
+      completedCount: stats.vocab.completedCount + stats.coding.completedCount,
+      modes,
+      stats,
+    };
+  });
+}
+
+export async function deleteDeck(deckId: number): Promise<void> {
+  const database = getDatabase();
+  const result = database.prepare('DELETE FROM decks WHERE id = ?').run(deckId);
+  if (result.changes === 0) {
+    throw new Error(`Deck ${deckId} not found.`);
+  }
+
+  const mediaDir = path.join(app.getPath('userData'), 'media', String(deckId));
+  try {
+    await fs.remove(mediaDir);
+  } catch (error) {
+    console.warn('[db] failed to remove media directory', { deckId, error });
+  }
 }
 
 export function getNextReviewCard(deckId: number): CardForReview | null {
@@ -176,6 +281,7 @@ export function getNextReviewCard(deckId: number): CardForReview | null {
       AND r.suspended = 0
       AND r.due_ts <= @now
       AND (r.learning_stage > 0 OR r.reps > 0)
+      AND c.kind = 'vocab'
     ORDER BY r.due_ts ASC, c.id ASC
     LIMIT 1
   `);
@@ -207,6 +313,7 @@ export function getNextReviewCard(deckId: number): CardForReview | null {
       WHERE n.deck_id = @deckId
         AND r.suspended = 0
         AND r.reps = 0
+        AND c.kind = 'vocab'
       ORDER BY RANDOM()
       LIMIT 1
     `);
@@ -220,6 +327,140 @@ export function getNextReviewCard(deckId: number): CardForReview | null {
   return {
     ...row,
     audioRefs: JSON.parse(row.audioRefs) as string[],
+  };
+}
+
+function parseCodingExtra(
+  extraJson: string,
+  fallback: { prompt: string; code: string; expected: string },
+) {
+  try {
+    const parsed = JSON.parse(extraJson) as Record<string, unknown>;
+    return {
+      prompt: String(parsed.prompt ?? fallback.prompt),
+      code: String(parsed.code ?? fallback.code),
+      language: String(parsed.language ?? 'javascript'),
+      expectedOutput: String(parsed.expectedOutput ?? fallback.expected),
+      explainContext:
+        parsed.explainContext === undefined || parsed.explainContext === null
+          ? null
+          : String(parsed.explainContext),
+    };
+  } catch {
+    return {
+      prompt: fallback.prompt,
+      code: fallback.code,
+      language: 'javascript',
+      expectedOutput: fallback.expected,
+      explainContext: null,
+    };
+  }
+}
+
+export function getNextCodingCard(deckId: number): CodingCardForReview | null {
+  const database = getDatabase();
+  const now = Date.now();
+
+  const dueStmt = database.prepare(`
+    SELECT
+      c.id AS id,
+      n.deck_id AS deckId,
+      c.front_html AS frontHtml,
+      c.back_html AS backHtml,
+      c.extra_json AS extraJson,
+      r.due_ts AS dueTs,
+      r.ivl_days AS ivlDays,
+      r.ease AS ease,
+      r.reps AS reps,
+      r.lapses AS lapses
+    FROM cards c
+    JOIN notes n ON n.id = c.note_id
+    JOIN reviews r ON r.card_id = c.id
+    WHERE n.deck_id = @deckId
+      AND c.kind = 'coding'
+      AND r.suspended = 0
+      AND r.due_ts <= @now
+      AND (r.learning_stage > 0 OR r.reps > 0)
+    ORDER BY r.due_ts ASC, c.id ASC
+    LIMIT 1
+  `);
+
+  let row = dueStmt.get({ deckId, now }) as
+    | {
+        id: number;
+        deckId: number;
+        frontHtml: string;
+        backHtml: string;
+        extraJson: string;
+        dueTs: number;
+        ivlDays: number;
+        ease: number;
+        reps: number;
+        lapses: number;
+      }
+    | undefined;
+
+  if (!row) {
+    const newStmt = database.prepare(`
+      SELECT
+        c.id AS id,
+        n.deck_id AS deckId,
+        c.front_html AS frontHtml,
+        c.back_html AS backHtml,
+        c.extra_json AS extraJson,
+        r.due_ts AS dueTs,
+        r.ivl_days AS ivlDays,
+        r.ease AS ease,
+        r.reps AS reps,
+        r.lapses AS lapses
+      FROM cards c
+      JOIN notes n ON n.id = c.note_id
+      JOIN reviews r ON r.card_id = c.id
+      WHERE n.deck_id = @deckId
+        AND c.kind = 'coding'
+        AND r.suspended = 0
+        AND r.reps = 0
+      ORDER BY RANDOM()
+      LIMIT 1
+    `);
+    row = newStmt.get({ deckId }) as
+      | {
+          id: number;
+          deckId: number;
+          frontHtml: string;
+          backHtml: string;
+          extraJson: string;
+          dueTs: number;
+          ivlDays: number;
+          ease: number;
+          reps: number;
+          lapses: number;
+        }
+      | undefined;
+  }
+
+  if (!row) return null;
+
+  const fallback = {
+    prompt: row.frontHtml.replace(/<[^>]*>/g, '').trim(),
+    code: row.frontHtml.replace(/<[^>]*>/g, '').trim(),
+    expected: row.backHtml.replace(/<[^>]*>/g, '').trim(),
+  };
+  const extra = parseCodingExtra(row.extraJson, fallback);
+
+  return {
+    id: row.id,
+    deckId: row.deckId,
+    prompt: extra.prompt,
+    code: extra.code,
+    language: extra.language,
+    expectedOutput: extra.expectedOutput,
+    explainContext: extra.explainContext ?? null,
+    dueTs: row.dueTs,
+    ivlDays: row.ivlDays,
+    ease: row.ease,
+    reps: row.reps,
+    lapses: row.lapses,
   };
 }
 
@@ -412,14 +653,16 @@ export interface NewCardArgs {
   lang: string;
   pos?: string | null;
   senseHint?: string | null;
+  kind?: CardKind;
+  extra?: Record<string, unknown> | null;
 }
 
 export function insertCard(database: Database.Database, card: NewCardArgs) {
   database
     .prepare(
       `
-      INSERT OR REPLACE INTO cards (id, note_id, front_html, back_html, audio_refs_json, target_lexeme, lang, pos, sense_hint)
-      VALUES (@id, @noteId, @frontHtml, @backHtml, @audioRefsJson, @targetLexeme, @lang, @pos, @senseHint)
+      INSERT OR REPLACE INTO cards (id, note_id, front_html, back_html, audio_refs_json, target_lexeme, lang, pos, sense_hint, kind, extra_json)
+      VALUES (@id, @noteId, @frontHtml, @backHtml, @audioRefsJson, @targetLexeme, @lang, @pos, @senseHint, @kind, @extraJson)
     `,
     )
     .run({
@@ -432,6 +675,8 @@ export function insertCard(database: Database.Database, card: NewCardArgs) {
       lang: card.lang,
       pos: card.pos ?? null,
       senseHint: card.senseHint ?? null,
+      kind: card.kind ?? 'vocab',
+      extraJson: JSON.stringify(card.extra ?? {}),
     });
 }
 
@@ -543,6 +788,67 @@ export function getCardDetail(cardId: number): CardDetail {
     previousExamples: attemptRows
       .map((row) => row.example)
       .filter((example): example is string => Boolean(example)),
+  };
+}
+
+export function getCardExplainContext(cardId: number): CardExplainContext {
+  const database = getDatabase();
+  const row = database
+    .prepare(
+      `
+      SELECT
+        c.id,
+        n.deck_id AS deckId,
+        c.kind,
+        c.target_lexeme AS targetLexeme,
+        c.front_html AS frontHtml,
+        c.back_html AS backHtml,
+        c.lang AS lang,
+        c.pos AS pos,
+        c.sense_hint AS senseHint,
+        c.extra_json AS extraJson
+      FROM cards c
+      JOIN notes n ON n.id = c.note_id
+      WHERE c.id = ?
+    `,
+    )
+    .get(cardId) as
+    | {
+        id: number;
+        deckId: number;
+        kind: CardKind;
+        targetLexeme: string;
+        frontHtml: string;
+        backHtml: string;
+        lang: string;
+        pos: string | null;
+        senseHint: string | null;
+        extraJson: string;
+      }
+    | undefined;
+
+  if (!row) {
+    throw new Error(`Card ${cardId} not found.`);
+  }
+
+  let extra: Record<string, unknown> = {};
+  try {
+    extra = JSON.parse(row.extraJson) as Record<string, unknown>;
+  } catch {
+    extra = {};
+  }
+
+  return {
+    id: row.id,
+    deckId: row.deckId,
+    kind: row.kind,
+    targetLexeme: row.targetLexeme,
+    frontHtml: row.frontHtml,
+    backHtml: row.backHtml,
+    lang: row.lang,
+    pos: row.pos,
+    senseHint: row.senseHint,
+    extra,
   };
 }
 

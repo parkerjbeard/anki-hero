@@ -12,6 +12,8 @@ export interface NoteRow {
   tags_json: string;
 }
 
+export type CardKind = 'vocab' | 'coding';
+
 export interface CardRow {
   id: number;
   note_id: number;
@@ -22,6 +24,8 @@ export interface CardRow {
   lang: string;
   pos: string | null;
   sense_hint: string | null;
+  kind: CardKind;
+  extra_json: string;
 }
 
 export interface ReviewRow {
@@ -73,4 +77,32 @@ export interface CardDetail {
   backHtml: string;
   previousSentences: string[];
   previousExamples: string[];
+}
+
+export interface CodingCardForReview {
+  id: number;
+  deckId: number;
+  prompt: string;
+  code: string;
+  language: string;
+  expectedOutput: string;
+  explainContext: string | null;
+  dueTs: number;
+  ivlDays: number;
+  ease: number;
+  reps: number;
+  lapses: number;
+}
+
+export interface CardExplainContext {
+  id: number;
+  deckId: number;
+  kind: CardKind;
+  targetLexeme: string;
+  frontHtml: string;
+  backHtml: string;
+  lang: string;
+  pos: string | null;
+  senseHint: string | null;
+  extra: Record<string, unknown>;
 }

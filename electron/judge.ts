@@ -1,71 +1,87 @@
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { getCardDetail, getLastAttempt, insertAttempt } from './db';
 import type { CardDetail } from './types';
 import type { JudgeResponseDTO } from '../types/ipc';
+import { DEFAULT_MODEL, extractText, getGeminiClient, Type } from './geminiClient';
 
 const schema = z.object({
   verdict: z.enum(['right', 'unsure', 'wrong']),
   feedback: z.string().min(1).max(180),
   scores: z.object({
-    meaning: z.number().min(0).max(1),
-    syntax: z.number().min(0).max(1),
-    collocation: z.number().min(0).max(1),
+    form: z.number().min(0).max(1),
+    mechanics: z.number().min(0).max(1),
+    grammar: z.number().min(0).max(1),
   }),
-  example: z.string().min(1).max(120),
+  example: z.string().min(1).max(120).optional(),
+  qualityScores: z
+    .object({
+      style: z.number().min(0).max(1),
+      sophistication: z.number().min(0).max(1),
+      naturalness: z.number().min(0).max(1),
+    })
+    .optional(),
+  quickTip: z.string().max(80).optional(),
 });
 
-const SYSTEM_PROMPT = `You are a vocabulary sentence judge. Using the provided context, assess whether SENTENCE uses TARGET in the intended sense and give concise usage coaching.
-Ignore grammar and surface mechanics (capitalization, punctuation, spelling, hyphenation, etc.). Do not moralize, tone police, or comment on sentiment; judge only whether TARGET is used in the intended sense and whether its collocations/arguments make sense.
-If SENTENCE misuses the TARGET’s sense or collocation, ensure the feedback pinpoints that semantic/collocational issue and the example supplies a corrected sentence that demonstrates proper usage of TARGET. Do not include mechanics-only edits.
-When SENTENCE is correct, keep feedback brief, avoid mechanics commentary, and leave the example empty unless a short celebratory variant is essential.`;
+const SYSTEM_PROMPT = `You are a vocabulary sentence judge and writing coach. Using the provided context, assess whether SENTENCE uses TARGET in the intended sense and provide both correctness coaching and quality feedback.
 
-const RESPONSE_FORMAT = {
-  type: 'json_schema',
-  name: 'judge_response',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      verdict: {
-        type: 'string',
-        enum: ['right', 'unsure', 'wrong'],
-      },
-      feedback: {
-        type: 'string',
-        minLength: 1,
-        maxLength: 180,
-      },
-      scores: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['meaning', 'syntax', 'collocation'],
-        properties: {
-          meaning: { type: 'number', minimum: 0, maximum: 1 },
-          syntax: { type: 'number', minimum: 0, maximum: 1 },
-          collocation: { type: 'number', minimum: 0, maximum: 1 },
-        },
-      },
-      example: {
-        type: 'string',
-        minLength: 1,
-        maxLength: 120,
-      },
+CORRECTNESS SCORES (0-1):
+- form — is TARGET expressed in the correct sense, with the right inflection and collocational partners?
+- grammar — does the sentence respect grammatical structure (word order, agreement, tense, connectors)?
+- mechanics — do spelling, capitalization, and punctuation support clarity?
+
+QUALITY SCORES (0-1, provide when verdict is "right" or "unsure"):
+- style — is the sentence vivid, interesting, or creative (1.0) vs generic/textbook-like (0.5) vs dull (0.0)?
+- sophistication — does it sound native-like (1.0), intermediate (0.5), or obviously learner-like (0.0)?
+- naturalness — are the word combinations and collocations natural (1.0), acceptable (0.5), or awkward (0.0)?
+
+GUIDELINES:
+- Do not moralize, tone police, or comment on sentiment; focus on language craft.
+- If SENTENCE has issues, pinpoint the highest-priority problem and provide a short corrected example if needed.
+- When SENTENCE is correct but quality scores are low (any below 0.6), provide a quickTip (max 80 chars) suggesting how to make it more interesting, vivid, or native-like.
+- When SENTENCE is both correct and high-quality, keep feedback brief and celebratory.
+
+Return JSON with: verdict ("right", "unsure", or "wrong"), feedback (string max 180 chars), scores object with form/mechanics/grammar (numbers 0-1), optional example (string max 120 chars), optional qualityScores object with style/sophistication/naturalness (numbers 0-1), optional quickTip (string max 80 chars).`;
+
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    verdict: {
+      type: Type.STRING,
+      enum: ['right', 'unsure', 'wrong'],
     },
-    required: ['verdict', 'feedback', 'scores', 'example'],
+    feedback: {
+      type: Type.STRING,
+    },
+    scores: {
+      type: Type.OBJECT,
+      properties: {
+        form: { type: Type.NUMBER },
+        mechanics: { type: Type.NUMBER },
+        grammar: { type: Type.NUMBER },
+      },
+      required: ['form', 'mechanics', 'grammar'],
+    },
+    example: {
+      type: Type.STRING,
+    },
+    qualityScores: {
+      type: Type.OBJECT,
+      properties: {
+        style: { type: Type.NUMBER },
+        sophistication: { type: Type.NUMBER },
+        naturalness: { type: Type.NUMBER },
+      },
+      required: ['style', 'sophistication', 'naturalness'],
+    },
+    quickTip: {
+      type: Type.STRING,
+    },
   },
-} as const;
+  required: ['verdict', 'feedback', 'scores'],
+};
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-5';
 const STRICTNESS = process.env.ANKI_HERO_STRICTNESS ?? 'normal';
-
-const client = process.env.OPENAI_API_KEY
-  ? new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL,
-    })
-  : null;
 
 function normalize(sentence: string): string {
   return sentence
@@ -84,11 +100,7 @@ function htmlToText(html: string): string {
 }
 
 async function callModel(card: CardDetail, sentence: string): Promise<JudgeResponseDTO> {
-  if (!client) {
-    throw new Error(
-      'Language model client not configured. Set OPENAI_API_KEY environment variable.',
-    );
-  }
+  const client = getGeminiClient();
 
   const payload = {
     TARGET: card.targetLexeme,
@@ -102,17 +114,14 @@ async function callModel(card: CardDetail, sentence: string): Promise<JudgeRespo
     PRIOR_EXAMPLES: card.previousExamples.slice(-3),
   };
 
-  const response = await client.responses.create({
+  const response = await client.models.generateContent({
     model: DEFAULT_MODEL,
-    reasoning: {
-      effort: 'low',
+    contents: `${SYSTEM_PROMPT}\n\n${JSON.stringify(payload)}`,
+    config: {
+      maxOutputTokens: 4000,
+      responseMimeType: 'application/json',
+      responseSchema: RESPONSE_SCHEMA,
     },
-    max_output_tokens: 600,
-    text: {
-      format: RESPONSE_FORMAT,
-      verbosity: 'low',
-    },
-    input: `${SYSTEM_PROMPT}\n\n${JSON.stringify(payload)}`,
   });
 
   const text = extractText(response);
@@ -135,47 +144,6 @@ async function callModel(card: CardDetail, sentence: string): Promise<JudgeRespo
   }
 
   return parsed.data;
-}
-
-function extractText(result: Awaited<ReturnType<OpenAI['responses']['create']>>): string {
-  // Handle GPT-5 Responses API format - check for choices array first
-  if ('choices' in result && Array.isArray(result.choices) && result.choices.length > 0) {
-    const choice = result.choices[0];
-
-    // Check for direct text format (most common for GPT-5)
-    if ('text' in choice && typeof choice.text === 'string') {
-      return choice.text;
-    }
-
-    // Check for message.content format
-    if ('message' in choice && choice.message && 'content' in choice.message) {
-      return choice.message.content;
-    }
-  }
-
-  // Handle GPT-5 Responses API format - check for output_text
-  if ('output_text' in result && typeof result.output_text === 'string') {
-    return result.output_text;
-  }
-
-  // Fallback to legacy format handling
-  const maybeOutputText = (result as unknown as { output_text?: string[] }).output_text;
-  if (Array.isArray(maybeOutputText) && maybeOutputText.length > 0) {
-    return maybeOutputText.join('').trim();
-  }
-
-  const segments = ((result as any).output ?? []).flatMap((item: any) => item.content ?? []);
-  const extracted = segments
-    .map((segment: any) => {
-      if ('text' in segment && segment.text) {
-        return segment.text;
-      }
-      return '';
-    })
-    .join('')
-    .trim();
-
-  return extracted;
 }
 
 export async function judgeSentence(cardId: number, sentence: string): Promise<JudgeResponseDTO> {

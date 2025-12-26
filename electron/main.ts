@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
-import { app, BrowserWindow, ipcMain, nativeTheme, dialog, protocol } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
 import { URL } from 'node:url';
 
@@ -9,18 +10,94 @@ import {
   initializeDatabase,
   getDeckSummaries,
   getNextReviewCard,
+  getNextCodingCard,
   getReviewState,
   updateReviewState,
   getCardMediaRefs,
   getDeckIdForCard,
   incrementNewShownToday,
+  deleteDeck,
 } from './db';
 import { importApkg } from './importApkg';
 import { judgeSentence } from './judge';
 import { schedule } from './scheduler';
 import type { Rating } from './scheduler';
+import { explainCard } from './explain';
+import { pairAssist } from './pair';
+import { getInsights } from './insights';
 
-const isDev = process.env.NODE_ENV === 'development' || !!process.env.VITE_DEV_SERVER_URL;
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+let updatePollInterval: NodeJS.Timeout | undefined;
+
+function setupAutoUpdates() {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  const feedUrl = process.env.ANKIHERO_UPDATES_URL?.trim();
+  if (!feedUrl) {
+    console.warn('[auto-updater] ANKIHERO_UPDATES_URL not set; skipping auto-update setup.');
+    return;
+  }
+
+  const channel = process.env.ANKIHERO_UPDATES_CHANNEL?.trim();
+  if (channel) {
+    autoUpdater.channel = channel;
+    autoUpdater.allowPrerelease = channel !== 'latest';
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl });
+  } catch (error) {
+    console.error('[auto-updater] Failed to configure update feed', error);
+    return;
+  }
+
+  autoUpdater.on('error', (error) => {
+    console.error('[auto-updater] Update error', error);
+  });
+
+  autoUpdater.on('update-available', () => {
+    console.info('[auto-updater] Update available; downloading...');
+  });
+
+  autoUpdater.on('update-downloaded', async () => {
+    const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (!window) {
+      autoUpdater.quitAndInstall();
+      return;
+    }
+
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'info',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update Ready',
+      message: 'Anki Hero has downloaded an update. Restart to finish installing?',
+    });
+
+    if (response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  const checkForUpdates = () =>
+    autoUpdater.checkForUpdates().catch((error) => {
+      console.error('[auto-updater] Failed to check for updates', error);
+    });
+
+  checkForUpdates();
+
+  if (updatePollInterval) {
+    clearInterval(updatePollInterval);
+  }
+
+  updatePollInterval = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS);
+}
 
 async function createWindow() {
   const preloadPath = path.join(__dirname, '../../dist-preload/preload/index.js');
@@ -46,7 +123,7 @@ async function createWindow() {
     await window.loadURL(process.env.VITE_DEV_SERVER_URL);
     window.webContents.openDevTools({ mode: 'detach' });
   } else {
-    const filePath = path.join(__dirname, '../dist/renderer/index.html');
+    const filePath = path.join(__dirname, '../../dist/renderer/index.html');
     await window.loadURL(new URL(`file://${filePath}`).toString());
   }
 }
@@ -72,6 +149,8 @@ app.whenReady().then(() => {
     app.exit(1);
     return;
   }
+
+  setupAutoUpdates();
 
   createWindow().catch((err) => {
     console.error('[main] failed to create window', err);
@@ -108,6 +187,10 @@ ipcMain.handle('api:nextCard', (_event, deckId: number) => {
   return getNextReviewCard(deckId);
 });
 
+ipcMain.handle('api:nextCodingCard', (_event, deckId: number) => {
+  return getNextCodingCard(deckId);
+});
+
 ipcMain.handle('api:playAudio', (_event, cardId: number) => {
   const { deckId, audioRefs } = getCardMediaRefs(cardId);
   const baseDir = path.join(app.getPath('userData'), 'media', String(deckId));
@@ -120,6 +203,14 @@ ipcMain.handle('api:playAudio', (_event, cardId: number) => {
 
 ipcMain.handle('api:judgeSentence', async (_event, cardId: number, sentence: string) => {
   return judgeSentence(cardId, sentence);
+});
+
+ipcMain.handle('api:explainCard', async (_event, cardId: number, payload) => {
+  return explainCard(cardId, payload ?? {});
+});
+
+ipcMain.handle('api:pairAssist', async (_event, cardId: number, payload) => {
+  return pairAssist(cardId, { cardId, ...(payload ?? {}) });
 });
 
 ipcMain.handle('api:rate', (_event, cardId: number, rating: Rating) => {
@@ -158,4 +249,12 @@ ipcMain.handle('api:rate', (_event, cardId: number, rating: Rating) => {
       // non-fatal
     }
   }
+});
+
+ipcMain.handle('api:deleteDeck', async (_event, deckId: number) => {
+  await deleteDeck(deckId);
+});
+
+ipcMain.handle('api:getInsights', async (_event, cardId: number, sentence: string) => {
+  return getInsights(cardId, sentence);
 });
